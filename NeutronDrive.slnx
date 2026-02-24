@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/Configuration/">
+    <File Path="LICENSE" />
+    <File Path="nuget.config" />
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="NeutronDrive/NeutronDrive.csproj" />
+</Solution>
