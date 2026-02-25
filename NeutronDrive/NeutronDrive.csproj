@@ -7,6 +7,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
         <PackageReference Include="Proton.Sdk.Drive" Version="1.0.0"/>
         <PackageReference Include="Proton.Cryptography" Version="1.0.0"/>
     </ItemGroup>
