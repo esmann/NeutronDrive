@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Configuration/">
     <File Path="LICENSE" />
+    <File Path="NOTES.md" />
     <File Path="nuget.config" />
     <File Path="README.md" />
   </Folder>
