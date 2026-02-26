@@ -10,7 +10,7 @@ using Proton.Sdk.Cryptography;
 
 namespace NeutronDrive;
 
-public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
+public sealed partial class PersistentSecretsCache : ISecretsCache, IDisposable
 {
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
     private readonly ILogger<PersistentSecretsCache> _logger;
@@ -42,7 +42,7 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
 
         entry.Value = new Secret(secretBytes.ToArray(), flags);
         _keys.TryAdd(cacheKey, 0);
-        _logger.LogDebug("Set {ValueLength}-byte value for key {CacheKey}", secretBytes.Length, cacheKey);
+        LogSetValueLengthByteValueForKeyCacheKey(secretBytes.Length, cacheKey);
     }
 
     public void IncludeInGroup(CacheKey groupCacheKey, ReadOnlySpan<CacheKey> memberCacheKeys)
@@ -61,12 +61,12 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
     {
         if (!_memoryCache.TryGetValue(cacheKey, out Secret? secret) || secret is null)
         {
-            _logger.LogDebug("Key {CacheKey} not found", cacheKey);
+            LogKeyCacheKeyNotFound(cacheKey);
             result = default;
             return false;
         }
 
-        _logger.LogDebug("Found {ValueLength}-byte value for {CacheKey}", secret.Bytes.Length, cacheKey);
+        LogFoundValueLengthByteValueForCacheKey(secret.Bytes.Length, cacheKey);
 
         result = transform.Invoke(state, secret.Bytes, secret.Flags);
         return true;
@@ -81,12 +81,12 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
     {
         if (!_memoryCache.TryGetValue<CacheKey[]>(groupCacheKey, out var cacheKeys) || cacheKeys is null)
         {
-            _logger.LogDebug("Group key {GroupCacheKey} not found", groupCacheKey);
+            LogGroupKeyGroupCacheKeyNotFound(groupCacheKey);
             result = null;
             return false;
         }
 
-        _logger.LogDebug("Found {Count} cache keys for {GroupCacheKey}", cacheKeys.Length, groupCacheKey);
+        LogFoundCountCacheKeysForGroupCacheKey(cacheKeys.Length, groupCacheKey);
         result = TransformEntries(cacheKeys, state, transform).ToList();
         return true;
     }
@@ -95,7 +95,7 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
     {
         _memoryCache.Remove(cacheKey);
         _keys.TryRemove(cacheKey, out _);
-        _logger.LogDebug("Removed entry for key {CacheKey}", cacheKey);
+        LogRemovedEntryForKeyCacheKey(cacheKey);
     }
 
     public void Dispose()
@@ -121,7 +121,7 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
 
                 if (entries.Count == 0)
                 {
-                    _logger.LogInformation("Cache is empty, nothing to persist.");
+                    LogCacheIsEmptyNothingToPersist();
                     if (File.Exists(_persistencePath))
                     {
                         File.Delete(_persistencePath);
@@ -131,11 +131,11 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
 
                 var json = JsonSerializer.Serialize(entries, _serializerOptions);
                 File.WriteAllText(_persistencePath, json);
-                _logger.LogInformation("Cache persisted to {Path}", _persistencePath);
+                LogCachePersistedToPath(_persistencePath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to persist cache to {Path}", _persistencePath);
+                LogFailedToPersistCacheToPath(ex, _persistencePath);
             }
         }
     }
@@ -146,7 +146,7 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
         {
             if (!File.Exists(_persistencePath))
             {
-                _logger.LogInformation("Cache file not found at {Path}, starting with an empty cache.", _persistencePath);
+                LogCacheFileNotFoundAtPathStartingWithAnEmptyCache(_persistencePath);
                 return;
             }
 
@@ -155,7 +155,7 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
                 var json = File.ReadAllText(_persistencePath);
                 if (string.IsNullOrWhiteSpace(json))
                 {
-                    _logger.LogWarning("Cache file at {Path} is empty.", _persistencePath);
+                    LogCacheFileAtPathIsEmpty(_persistencePath);
                     return;
                 }
 
@@ -163,7 +163,7 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
 
                 if (entries is null)
                 {
-                    _logger.LogInformation("No entries found at {Path}.", _persistencePath);
+                    LogNoEntriesFoundAtPath(_persistencePath);
                     return;
                 }
 
@@ -185,11 +185,11 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
                         _keys.TryAdd(pair.Key, 0);
                     }
                 }
-                _logger.LogInformation("Cache loaded from {Path}", _persistencePath);
+                LogCacheLoadedFromPath(_persistencePath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to load cache from {Path}", _persistencePath);
+                LogFailedToLoadCacheFromPath(ex, _persistencePath);
             }
         }
     }
@@ -206,16 +206,52 @@ public sealed class PersistentSecretsCache : ISecretsCache, IDisposable
         }
     }
 
-    private sealed class Secret
+    [method: JsonConstructor]
+    private sealed class Secret(byte[] bytes, byte flags)
     {
-        public byte[] Bytes { get; set; }
-        public byte Flags { get; set; }
-
-        [JsonConstructor]
-        public Secret(byte[] bytes, byte flags)
-        {
-            Bytes = bytes;
-            Flags = flags;
-        }
+        public byte[] Bytes { get; init; } = bytes;
+        public byte Flags { get; init; } = flags;
     }
+
+    [LoggerMessage(LogLevel.Debug, "Set {valueLength}-byte value for key {cacheKey}")]
+    partial void LogSetValueLengthByteValueForKeyCacheKey(int valueLength, CacheKey cacheKey);
+
+    [LoggerMessage(LogLevel.Debug, "Key {cacheKey} not found")]
+    partial void LogKeyCacheKeyNotFound(CacheKey cacheKey);
+
+    [LoggerMessage(LogLevel.Debug, "Found {valueLength}-byte value for {cacheKey}")]
+    partial void LogFoundValueLengthByteValueForCacheKey(int valueLength, CacheKey cacheKey);
+
+    [LoggerMessage(LogLevel.Debug, "Group key {groupCacheKey} not found")]
+    partial void LogGroupKeyGroupCacheKeyNotFound(CacheKey groupCacheKey);
+
+    [LoggerMessage(LogLevel.Debug, "Found {count} cache keys for {groupCacheKey}")]
+    partial void LogFoundCountCacheKeysForGroupCacheKey(int count, CacheKey groupCacheKey);
+
+    [LoggerMessage(LogLevel.Debug, "Removed entry for key {cacheKey}")]
+    partial void LogRemovedEntryForKeyCacheKey(CacheKey cacheKey);
+
+    [LoggerMessage(LogLevel.Information, "Cache is empty, nothing to persist.")]
+    partial void LogCacheIsEmptyNothingToPersist();
+
+    [LoggerMessage(LogLevel.Information, "Cache persisted to {path}")]
+    partial void LogCachePersistedToPath(string path);
+
+    [LoggerMessage(LogLevel.Error, "Failed to persist cache to {path}")]
+    partial void LogFailedToPersistCacheToPath(Exception e, string path);
+
+    [LoggerMessage(LogLevel.Information, "Cache file not found at {path}, starting with an empty cache.")]
+    partial void LogCacheFileNotFoundAtPathStartingWithAnEmptyCache(string path);
+
+    [LoggerMessage(LogLevel.Information, "No entries found at {path}.")]
+    partial void LogNoEntriesFoundAtPath(string path);
+
+    [LoggerMessage(LogLevel.Warning, "Cache file at {path} is empty.")]
+    partial void LogCacheFileAtPathIsEmpty(string path);
+
+    [LoggerMessage(LogLevel.Information, "Cache loaded from {path}")]
+    partial void LogCacheLoadedFromPath(string path);
+
+    [LoggerMessage(LogLevel.Error, "Failed to load cache from {path}")]
+    partial void LogFailedToLoadCacheFromPath(Exception e, string path);
 }
