@@ -21,16 +21,14 @@ internal static class NeutronDrive
         var verbose = args.Contains("--verbose");
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
-            if (verbose)
+            if (!verbose) return;
+            builder.AddSimpleConsole(options =>
             {
-                builder.AddSimpleConsole(options =>
-                {
-                    options.IncludeScopes = true;
-                    options.SingleLine = true;
-                    options.TimestampFormat = "hh:mm:ss ";
-                });
-                builder.SetMinimumLevel(LogLevel.Debug);
-            }
+                options.IncludeScopes = true;
+                options.SingleLine = true;
+                options.TimestampFormat = "hh:mm:ss ";
+            });
+            builder.SetMinimumLevel(LogLevel.Debug);
         });
 
         var mainLogger = loggerFactory.CreateLogger("NeutronDrive");
@@ -217,7 +215,6 @@ internal static class NeutronDrive
         catch (Exception e)
         {
             Console.WriteLine("Something failed, attempting to end session...");
-            Console.WriteLine(e.Message);
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
             var token = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
             await ProtonApiSession.EndAsync(session.SessionId.Value, token.AccessToken, new ProtonClientOptions { AppVersion = appVersion });
