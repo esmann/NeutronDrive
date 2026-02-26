@@ -74,7 +74,7 @@ internal static class NeutronDrive
         {
             mainLogger.LogInformation("Found existing session and secrets cache.");
             Console.WriteLine("Found existing session and secrets cache, attempting to resume session...");
-            var sessionStuff = JsonSerializer.Deserialize<SessionStuff>(File.ReadAllText(sessionFile));
+            var sessionStuff = JsonSerializer.Deserialize<SessionStuff>(await File.ReadAllTextAsync(sessionFile));
             var sessionResumeRequest = new SessionResumeRequest()
             {
                 AccessToken = sessionStuff.AccessToken,
@@ -129,8 +129,6 @@ internal static class NeutronDrive
                 await session.ApplyDataPasswordAsync(Encoding.UTF8.GetBytes(password), CancellationToken.None);
                 mainLogger.LogInformation("Data password applied.");
                 var tokens = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
-                var hest = sessionBeginRequest.Options.SecretsCache;
-                //await File.WriteAllTextAsync(secretsFile, hest);
                 var sessionStuff = new SessionStuff
                 {
                     Id = session.SessionId.Value,
@@ -223,6 +221,7 @@ internal static class NeutronDrive
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
             var token = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
             await ProtonApiSession.EndAsync(session.SessionId.Value, token.AccessToken, new ProtonClientOptions { AppVersion = appVersion });
+            secretsCache.Dispose();
             File.Delete(sessionFile);
             File.Delete(secretsFile);
             mainLogger.LogInformation("Session ended and session files deleted.");
