@@ -1,8 +1,9 @@
 ﻿using System.Text;
+using System.Text.Json;
+using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.Logging;
 using Proton.Sdk;
 using Proton.Sdk.Drive;
-
-using Microsoft.AspNetCore.StaticFiles;
 
 namespace NeutronDrive;
 
@@ -14,6 +15,29 @@ internal static class NeutronDrive
         const string appName = "neutrondrive";
         const string version = "0.1.0-alpha";
         const string appVersion = $"{platform}-drive-{appName}@{version}";
+        const string sessionFile = "session.json";
+        const string secretsFile = "secrets.json";
+
+        var verbose = args.Contains("--verbose");
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            if (verbose)
+            {
+                builder.AddSimpleConsole(options =>
+                {
+                    options.IncludeScopes = true;
+                    options.SingleLine = true;
+                    options.TimestampFormat = "hh:mm:ss ";
+                });
+                builder.SetMinimumLevel(LogLevel.Debug);
+            }
+        });
+
+        var mainLogger = loggerFactory.CreateLogger("NeutronDrive");
+
+        mainLogger.LogInformation("Starting application.");
+
+        var secretsCache = new PersistentSecretsCache(secretsFile, loggerFactory.CreateLogger<PersistentSecretsCache>());
 
         var fileArgIndex = Array.IndexOf(args, "--file");
         if (fileArgIndex == -1 || fileArgIndex + 1 >= args.Length)
@@ -22,73 +46,118 @@ internal static class NeutronDrive
             return;
         }
         var filePath = args[fileArgIndex + 1];
+        mainLogger.LogInformation("File path specified: {FilePath}", filePath);
 
         var folderArgIndex = Array.IndexOf(args, "--folder");
         string folder;
         if (folderArgIndex == -1 || folderArgIndex + 1 >= args.Length)
         {
-            Console.WriteLine("No folder specified, using root folder.");
+            mainLogger.LogInformation("No folder specified, using root folder.");
             folder = "";
         }
         else
         {
             folder = args[folderArgIndex + 1];
-        }
-
-        Console.Write("Username: ");
-        var username = Console.ReadLine();
-        if (username is null || username.Length == 0)
-        {
-            Console.WriteLine("Please provide a username.");
-            return;
-        }
-
-        Console.Write("Password: ");
-        var password = Console.ReadLine();
-        if (password is null || password.Length == 0)
-        {
-            Console.WriteLine("Please provide a password.");
-            return;
+            mainLogger.LogInformation("Folder specified: {Folder}", folder);
         }
 
         var options = new ProtonClientOptions()
         {
             AppVersion = appVersion,
+            SecretsCache = secretsCache,
+            LoggerFactory = loggerFactory
         };
 
-        var sessionBeginRequest = new SessionBeginRequest()
-        {
-            Username = username,
-            Password = password,
-            Options = options
-        };
 
-        var session = await ProtonApiSession.BeginAsync(sessionBeginRequest, CancellationToken.None);
-
-        if (session.IsWaitingForSecondFactorCode)
+        ProtonApiSession session;
+        if (File.Exists(sessionFile) && File.Exists(secretsFile))
         {
-            Console.Write("Second factor code: ");
-            var secondFactorCode = Console.ReadLine();
-            if (secondFactorCode is null || secondFactorCode.Length == 0)
+            mainLogger.LogInformation("Found existing session and secrets cache.");
+            Console.WriteLine("Found existing session and secrets cache, attempting to resume session...");
+            var sessionStuff = JsonSerializer.Deserialize<SessionStuff>(File.ReadAllText(sessionFile));
+            var sessionResumeRequest = new SessionResumeRequest()
+            {
+                AccessToken = sessionStuff.AccessToken,
+                RefreshToken = sessionStuff.RefreshToken,
+                SessionId = new SessionId(sessionStuff.Id),
+                UserId = new UserId(sessionStuff.UserId),
+                Options = options
+            };
+            session = ProtonApiSession.Resume(sessionResumeRequest);
+            mainLogger.LogInformation("Session resumed successfully.");
+        } else
+        {
+            mainLogger.LogInformation("No existing session found. Starting new session.");
+            Console.Write("Username: ");
+            var username = Console.ReadLine();
+            if (username is null || username.Length == 0)
+            {
+                Console.WriteLine("Please provide a username.");
+                return;
+            }
+
+            Console.Write("Password: ");
+            var password = Console.ReadLine();
+            if (password is null || password.Length == 0)
             {
                 Console.WriteLine("Please provide a password.");
                 return;
             }
 
-            await session.ApplySecondFactorCodeAsync(secondFactorCode, CancellationToken.None);
-            await session.ApplyDataPasswordAsync(Encoding.UTF8.GetBytes(password), CancellationToken.None);
-        }
+            var sessionBeginRequest = new SessionBeginRequest()
+            {
+                Username = username,
+                Password = password,
+                Options = options
+            };
 
+            mainLogger.LogInformation("Beginning new session.");
+            session = await ProtonApiSession.BeginAsync(sessionBeginRequest, CancellationToken.None);
+
+            if (session.IsWaitingForSecondFactorCode)
+            {
+                Console.Write("Second factor code: ");
+                var secondFactorCode = Console.ReadLine();
+                if (secondFactorCode is null || secondFactorCode.Length == 0)
+                {
+                    Console.WriteLine("Please provide a 2FA code.");
+                    return;
+                }
+
+                await session.ApplySecondFactorCodeAsync(secondFactorCode, CancellationToken.None);
+                mainLogger.LogInformation("2FA code applied.");
+                await session.ApplyDataPasswordAsync(Encoding.UTF8.GetBytes(password), CancellationToken.None);
+                mainLogger.LogInformation("Data password applied.");
+                var tokens = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
+                var hest = sessionBeginRequest.Options.SecretsCache;
+                //await File.WriteAllTextAsync(secretsFile, hest);
+                var sessionStuff = new SessionStuff
+                {
+                    Id = session.SessionId.Value,
+                    AccessToken = tokens.AccessToken,
+                    RefreshToken = tokens.RefreshToken,
+                    UserId = session.UserId.Value,
+                    Username = session.Username,
+                };
+                var json = JsonSerializer.Serialize(sessionStuff);
+                await File.WriteAllTextAsync(sessionFile, json);
+                mainLogger.LogInformation("New session details saved to file.");
+            }
+        }
         try
         {
             var cancellationToken = CancellationToken.None; // Remove this if you have an actual cancellation token
             var client = new ProtonDriveClient(session);
             var accountClient = new ProtonAccountClient(session);
+
+            mainLogger.LogInformation("Fetching default address.");
             var address = await accountClient.GetDefaultAddressAsync(cancellationToken);
 
+            mainLogger.LogInformation("Fetching volumes.");
             var volumes = await client.GetVolumesAsync(cancellationToken);
             var mainVolume = volumes[0];
 
+            mainLogger.LogInformation("Fetching root share.");
             var share = await client.GetShareAsync(mainVolume.RootShareId, cancellationToken);
             var shareMetaData = new ShareMetadata
             {
@@ -101,23 +170,29 @@ internal static class NeutronDrive
             INode? folderNode;
             if (folder.Length == 0)
             {
+                mainLogger.LogInformation("Getting root folder node.");
                 folderNode = await client.GetNodeAsync(share.ShareId, share.RootNodeId, cancellationToken);
             }
             else
             {
+                mainLogger.LogInformation("Checking for existence of folder '{Folder}'.", folder);
                 var children = client.GetFolderChildrenAsync(new NodeIdentity(share.ShareId, mainVolume.Id, share.RootNodeId), cancellationToken);
                 folderNode = await children.FirstOrDefaultAsync(child => child.Name == folder, cancellationToken);
                 if (folderNode is FolderNode)
                 {
+                    mainLogger.LogInformation("Folder '{Folder}' already exists.", folder);
                     Console.WriteLine($"Folder {folder} already exists.");
                 }
                 else
                 {
+                    mainLogger.LogInformation("Creating folder '{Folder}'.", folder);
                     folderNode = await client.CreateFolderAsync(shareMetaData, new NodeIdentity(share.ShareId, mainVolume.Id, share.RootNodeId), folder, cancellationToken);
+                    mainLogger.LogInformation("Folder '{Folder}' created.", folder);
                 }
             }
 
             var fileInfo = new FileInfo(filePath);
+            mainLogger.LogInformation("Preparing to upload file '{FileName}' of size {FileSize} bytes.", fileInfo.Name, fileInfo.Length);
             var waitForUpload = await client.WaitForFileUploaderAsync(fileInfo.Length, 0, CancellationToken.None);
 
             var fileContent = File.OpenRead(filePath);
@@ -125,10 +200,13 @@ internal static class NeutronDrive
             var modificationTime = File.GetLastWriteTimeUtc(filePath);
             var onProgress = new Action<long, long>((uploaded, total) => Console.Write($"\rUploaded {uploaded} of {total} bytes"));
             var contentType = GetContentType(filePath);
+            mainLogger.LogInformation("Content type determined as: {ContentType}", contentType);
+
+            mainLogger.LogInformation("Starting file upload.");
             await waitForUpload.UploadNewFileAsync(
                 shareMetaData,
                 folderNode.NodeIdentity,
-                fileInfo.Name, 
+                fileInfo.Name,
                 contentType,
                 fileContent,
                 fileSamples,
@@ -136,22 +214,29 @@ internal static class NeutronDrive
                 onProgress,
                 CancellationToken.None);
             Console.WriteLine();
+            mainLogger.LogInformation("File upload completed.");
         }
         catch (Exception e)
         {
+            Console.WriteLine("Something failed, attempting to end session...");
+            Console.WriteLine(e.Message);
+            mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
             var token = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
             await ProtonApiSession.EndAsync(session.SessionId.Value, token.AccessToken, new ProtonClientOptions { AppVersion = appVersion });
+            File.Delete(sessionFile);
+            File.Delete(secretsFile);
+            mainLogger.LogInformation("Session ended and session files deleted.");
             Console.WriteLine(e);
             throw;
         }
         finally
         {
-            var token = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
-            await ProtonApiSession.EndAsync(session.SessionId.Value, token.AccessToken, new ProtonClientOptions { AppVersion = appVersion });
+            secretsCache.Dispose();
+            mainLogger.LogInformation("Secrets cache disposed.");
         }
 
     }
-    
+
     private static string GetContentType(string filePath)
     {
         var provider = new FileExtensionContentTypeProvider();
