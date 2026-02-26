@@ -9,7 +9,7 @@
     <ItemGroup>
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
         <PackageReference Include="Proton.Sdk.Drive" Version="1.0.0"/>
-        <PackageReference Include="Proton.Cryptography" Version="1.0.0"/>
+        <PackageReference Include="Proton.Cryptography" Version="0.10.4"/>
         <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.4"/>
     </ItemGroup>
 </Project>
