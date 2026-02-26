@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -98,7 +99,9 @@ public sealed partial class PersistentCache : IDisposable
                 }
 
                 var json = JsonSerializer.Serialize(_data, _serializerOptions);
-                File.WriteAllText(_persistencePath, json);
+                var encrypted = CacheFileProtection.Encrypt(json);
+                File.WriteAllBytes(_persistencePath, encrypted);
+                CacheFileProtection.RestrictFilePermissions(_persistencePath);
                 LogCachePersistedToPath(_persistencePath);
             }
             catch (Exception ex)
@@ -141,7 +144,25 @@ public sealed partial class PersistentCache : IDisposable
 
             try
             {
-                var json = File.ReadAllText(_persistencePath);
+                var fileBytes = File.ReadAllBytes(_persistencePath);
+                if (fileBytes.Length == 0)
+                {
+                    LogCacheFileAtPathIsEmpty(_persistencePath);
+                    return;
+                }
+
+                string json;
+                try
+                {
+                    json = CacheFileProtection.Decrypt(fileBytes);
+                }
+                catch (CryptographicException)
+                {
+                    // Attempt to read as legacy unencrypted JSON for migration
+                    json = System.Text.Encoding.UTF8.GetString(fileBytes);
+                    LogCacheFileAtPathIsUnencryptedMigrating(_persistencePath);
+                }
+
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     LogCacheFileAtPathIsEmpty(_persistencePath);
@@ -179,6 +200,9 @@ public sealed partial class PersistentCache : IDisposable
 
     [LoggerMessage(LogLevel.Warning, "Cache file at {path} is empty.")]
     partial void LogCacheFileAtPathIsEmpty(string path);
+
+    [LoggerMessage(LogLevel.Warning, "Cache file at {path} is unencrypted, migrating to encrypted format.")]
+    partial void LogCacheFileAtPathIsUnencryptedMigrating(string path);
 
     [LoggerMessage(LogLevel.Information, "No entries found at {path}.")]
     partial void LogNoEntriesFoundAtPath(string path);

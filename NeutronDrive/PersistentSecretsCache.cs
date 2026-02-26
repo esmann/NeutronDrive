@@ -9,7 +9,7 @@ using Proton.Sdk;
 using Proton.Sdk.Cryptography;
 
 namespace NeutronDrive;
-// TODO Harden/protect the cache file, e.g. by using encryption and/or file permissions, to prevent unauthorized access to secrets stored on disk.
+
 public sealed partial class PersistentSecretsCache : ISecretsCache, IDisposable
 {
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
