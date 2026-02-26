@@ -15,8 +15,7 @@ internal static class NeutronDrive
         const string appName = "neutrondrive";
         const string version = "0.1.0-alpha";
         const string appVersion = $"{platform}-drive-{appName}@{version}";
-        const string sessionFile = "session.json";
-        const string secretsFile = "secrets.json";
+        const string cacheFile = "cache.json";
 
         var verbose = args.Contains("--verbose");
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -35,7 +34,9 @@ internal static class NeutronDrive
 
         mainLogger.LogInformation("Starting application.");
 
-        var secretsCache = new PersistentSecretsCache(secretsFile, loggerFactory.CreateLogger<PersistentSecretsCache>());
+        var persistentCache = new PersistentCache(cacheFile, loggerFactory.CreateLogger<PersistentCache>());
+        var sessionCache = new PersistentSessionCache(persistentCache, loggerFactory.CreateLogger<PersistentSessionCache>());
+        var secretsCache = new PersistentSecretsCache(persistentCache, loggerFactory.CreateLogger<PersistentSecretsCache>());
 
         var fileArgIndex = Array.IndexOf(args, "--file");
         if (fileArgIndex == -1 || fileArgIndex + 1 >= args.Length)
@@ -68,11 +69,11 @@ internal static class NeutronDrive
 
 
         ProtonApiSession session;
-        if (File.Exists(sessionFile) && File.Exists(secretsFile))
+        if (sessionCache.HasSession)
         {
             mainLogger.LogInformation("Found existing session and secrets cache.");
             Console.WriteLine("Found existing session and secrets cache, attempting to resume session...");
-            var sessionStuff = JsonSerializer.Deserialize<SessionStuff>(await File.ReadAllTextAsync(sessionFile));
+            var sessionStuff = sessionCache.Session!;
             var sessionResumeRequest = new SessionResumeRequest()
             {
                 AccessToken = sessionStuff.AccessToken,
@@ -135,9 +136,8 @@ internal static class NeutronDrive
                     UserId = session.UserId.Value,
                     Username = session.Username,
                 };
-                var json = JsonSerializer.Serialize(sessionStuff);
-                await File.WriteAllTextAsync(sessionFile, json);
-                mainLogger.LogInformation("New session details saved to file.");
+                sessionCache.SaveSession(sessionStuff);
+                mainLogger.LogInformation("New session details saved to cache.");
             }
         }
         try
@@ -219,16 +219,16 @@ internal static class NeutronDrive
             var token = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
             await ProtonApiSession.EndAsync(session.SessionId.Value, token.AccessToken, new ProtonClientOptions { AppVersion = appVersion });
             secretsCache.Dispose();
-            File.Delete(sessionFile);
-            File.Delete(secretsFile);
-            mainLogger.LogInformation("Session ended and session files deleted.");
+            persistentCache.Clear();
+            mainLogger.LogInformation("Session ended and cache cleared.");
             Console.WriteLine(e);
             throw;
         }
         finally
         {
             secretsCache.Dispose();
-            mainLogger.LogInformation("Secrets cache disposed.");
+            persistentCache.Dispose();
+            mainLogger.LogInformation("Caches disposed.");
         }
 
     }

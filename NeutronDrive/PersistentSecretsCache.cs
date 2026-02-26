@@ -9,25 +9,24 @@ using Proton.Sdk;
 using Proton.Sdk.Cryptography;
 
 namespace NeutronDrive;
-
+// TODO Harden/protect the cache file, e.g. by using encryption and/or file permissions, to prevent unauthorized access to secrets stored on disk.
 public sealed partial class PersistentSecretsCache : ISecretsCache, IDisposable
 {
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
     private readonly ILogger<PersistentSecretsCache> _logger;
-    private readonly string _persistencePath;
-    private readonly Lock _fileLock = new();
+    private readonly PersistentCache _persistentCache;
     private readonly ConcurrentDictionary<CacheKey, byte> _keys = new();
     private readonly JsonSerializerOptions _serializerOptions;
 
-    public PersistentSecretsCache(string persistencePath, ILogger<PersistentSecretsCache>? logger = null)
+    public PersistentSecretsCache(PersistentCache persistentCache, ILogger<PersistentSecretsCache>? logger = null)
     {
-        _persistencePath = persistencePath;
+        _persistentCache = persistentCache;
         _logger = logger ?? new NullLogger<PersistentSecretsCache>();
         _serializerOptions = new JsonSerializerOptions
         {
             Converters = { new CacheKeyJsonConverter() }
         };
-        LoadFromFile();
+        LoadFromCache();
     }
 
     // ... other methods are unchanged ...
@@ -100,98 +99,93 @@ public sealed partial class PersistentSecretsCache : ISecretsCache, IDisposable
 
     public void Dispose()
     {
-        PersistToFile();
+        PersistToCache();
         _memoryCache.Dispose();
     }
 
-    private void PersistToFile()
+    private void PersistToCache()
     {
-        lock (_fileLock)
+        try
         {
-            try
+            var entries = new Dictionary<CacheKey, object>();
+            foreach (var key in _keys.Keys)
             {
-                var entries = new Dictionary<CacheKey, object>();
-                foreach (var key in _keys.Keys)
+                if (_memoryCache.TryGetValue(key, out var value) && value != null)
                 {
-                    if (_memoryCache.TryGetValue(key, out var value) && value != null)
-                    {
-                        entries[key] = value;
-                    }
+                    entries[key] = value;
                 }
-
-                if (entries.Count == 0)
-                {
-                    LogCacheIsEmptyNothingToPersist();
-                    if (File.Exists(_persistencePath))
-                    {
-                        File.Delete(_persistencePath);
-                    }
-                    return;
-                }
-
-                var json = JsonSerializer.Serialize(entries, _serializerOptions);
-                File.WriteAllText(_persistencePath, json);
-                LogCachePersistedToPath(_persistencePath);
             }
-            catch (Exception ex)
-            {
-                LogFailedToPersistCacheToPath(ex, _persistencePath);
-            }
-        }
-    }
 
-    private void LoadFromFile()
-    {
-        lock (_fileLock)
-        {
-            if (!File.Exists(_persistencePath))
+            if (entries.Count == 0)
             {
-                LogCacheFileNotFoundAtPathStartingWithAnEmptyCache(_persistencePath);
+                LogCacheIsEmptyNothingToPersist();
+                _persistentCache.SetSecretsEntries(new Dictionary<string, JsonElement>());
+                _persistentCache.Save();
                 return;
             }
 
-            try
-            {
-                var json = File.ReadAllText(_persistencePath);
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    LogCacheFileAtPathIsEmpty(_persistencePath);
-                    return;
-                }
-
-                var entries = JsonSerializer.Deserialize<Dictionary<CacheKey, JsonElement>>(json, _serializerOptions);
-
-                if (entries is null)
-                {
-                    LogNoEntriesFoundAtPath(_persistencePath);
-                    return;
-                }
-
-                foreach (var pair in entries)
-                {
-                    object? value = null;
-                    if (pair.Value.ValueKind == JsonValueKind.Object)
-                    {
-                        value = pair.Value.Deserialize<Secret>(_serializerOptions);
-                    }
-                    else if (pair.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        value = pair.Value.Deserialize<CacheKey[]>(_serializerOptions);
-                    }
-
-                    if (value != null)
-                    {
-                        _memoryCache.Set(pair.Key, value);
-                        _keys.TryAdd(pair.Key, 0);
-                    }
-                }
-                LogCacheLoadedFromPath(_persistencePath);
-            }
-            catch (Exception ex)
-            {
-                LogFailedToLoadCacheFromPath(ex, _persistencePath);
-            }
+            // Serialize secrets to a Dictionary<string, JsonElement> for storage in PersistentCache
+            var json = JsonSerializer.Serialize(entries, _serializerOptions);
+            var serializedEntries = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, _serializerOptions)
+                                    ?? new Dictionary<string, JsonElement>();
+            _persistentCache.SetSecretsEntries(serializedEntries);
+            _persistentCache.Save();
+            LogSecretsCachePersisted();
         }
+        catch (Exception ex)
+        {
+            LogFailedToPersistSecretsCache(ex);
+        }
+    }
+
+    private void LoadFromCache()
+    {
+        try
+        {
+            var entries = _persistentCache.SecretsEntries;
+
+            if (entries.Count == 0)
+            {
+                LogNoSecretsEntriesFoundInCache();
+                return;
+            }
+
+            foreach (var pair in entries)
+            {
+                var cacheKey = ParseCacheKey(pair.Key);
+                object? value = null;
+                if (pair.Value.ValueKind == JsonValueKind.Object)
+                {
+                    value = pair.Value.Deserialize<Secret>(_serializerOptions);
+                }
+                else if (pair.Value.ValueKind == JsonValueKind.Array)
+                {
+                    value = pair.Value.Deserialize<CacheKey[]>(_serializerOptions);
+                }
+
+                if (value != null)
+                {
+                    _memoryCache.Set(cacheKey, value);
+                    _keys.TryAdd(cacheKey, 0);
+                }
+            }
+            LogSecretsCacheLoaded();
+        }
+        catch (Exception ex)
+        {
+            LogFailedToLoadSecretsCache(ex);
+        }
+    }
+
+    private static CacheKey ParseCacheKey(string stringValue)
+    {
+        var parts = stringValue.Split(':');
+        return parts.Length switch
+        {
+            3 => new CacheKey(parts[0], parts[1], parts[2]),
+            5 => new CacheKey(parts[0], parts[1], parts[2], parts[3], parts[4]),
+            _ => throw new JsonException($"Invalid CacheKey format. Expected 3 or 5 parts, but got {parts.Length}.")
+        };
     }
 
     private IEnumerable<TResult> TransformEntries<TResult, TState>(CacheKey[] cacheKeys, TState state, SecretTransform<TState, TResult> transform)
@@ -234,24 +228,18 @@ public sealed partial class PersistentSecretsCache : ISecretsCache, IDisposable
     [LoggerMessage(LogLevel.Information, "Cache is empty, nothing to persist.")]
     partial void LogCacheIsEmptyNothingToPersist();
 
-    [LoggerMessage(LogLevel.Information, "Cache persisted to {path}")]
-    partial void LogCachePersistedToPath(string path);
+    [LoggerMessage(LogLevel.Information, "Secrets cache persisted.")]
+    partial void LogSecretsCachePersisted();
 
-    [LoggerMessage(LogLevel.Error, "Failed to persist cache to {path}")]
-    partial void LogFailedToPersistCacheToPath(Exception e, string path);
+    [LoggerMessage(LogLevel.Error, "Failed to persist secrets cache.")]
+    partial void LogFailedToPersistSecretsCache(Exception e);
 
-    [LoggerMessage(LogLevel.Information, "Cache file not found at {path}, starting with an empty cache.")]
-    partial void LogCacheFileNotFoundAtPathStartingWithAnEmptyCache(string path);
+    [LoggerMessage(LogLevel.Information, "No secrets entries found in cache.")]
+    partial void LogNoSecretsEntriesFoundInCache();
 
-    [LoggerMessage(LogLevel.Information, "No entries found at {path}.")]
-    partial void LogNoEntriesFoundAtPath(string path);
+    [LoggerMessage(LogLevel.Information, "Secrets cache loaded.")]
+    partial void LogSecretsCacheLoaded();
 
-    [LoggerMessage(LogLevel.Warning, "Cache file at {path} is empty.")]
-    partial void LogCacheFileAtPathIsEmpty(string path);
-
-    [LoggerMessage(LogLevel.Information, "Cache loaded from {path}")]
-    partial void LogCacheLoadedFromPath(string path);
-
-    [LoggerMessage(LogLevel.Error, "Failed to load cache from {path}")]
-    partial void LogFailedToLoadCacheFromPath(Exception e, string path);
+    [LoggerMessage(LogLevel.Error, "Failed to load secrets cache.")]
+    partial void LogFailedToLoadSecretsCache(Exception e);
 }
