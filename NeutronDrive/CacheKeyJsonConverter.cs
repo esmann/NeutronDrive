@@ -13,7 +13,7 @@ public class CacheKeyJsonConverter : JsonConverter<CacheKey>
 
     public override void Write(Utf8JsonWriter writer, CacheKey value, JsonSerializerOptions options)
     {
-        writer.WriteStringValue(FormatCacheKey(value));
+        writer.WriteStringValue(value.ToString());
     }
 
     public override CacheKey ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -23,7 +23,7 @@ public class CacheKeyJsonConverter : JsonConverter<CacheKey>
 
     public override void WriteAsPropertyName(Utf8JsonWriter writer, CacheKey value, JsonSerializerOptions options)
     {
-        writer.WritePropertyName(FormatCacheKey(value));
+        writer.WritePropertyName(value.ToString());
     }
 
     private static CacheKey ParseCacheKey(string? stringValue)
@@ -41,12 +41,5 @@ public class CacheKeyJsonConverter : JsonConverter<CacheKey>
             5 => new CacheKey(parts[0], parts[1], parts[2], parts[3], parts[4]),
             _ => throw new JsonException($"Invalid CacheKey format. Expected 3 or 5 parts, but got {parts.Length}.")
         };
-    }
-
-    private static string FormatCacheKey(CacheKey value)
-    {
-        return value.Context is not { } context
-            ? $"{value.ValueHolderName}:{value.ValueHolderId}:{value.ValueName}"
-            : $"{context.Name}:{context.Id}:{value.ValueHolderName}:{value.ValueHolderId}:{value.ValueName}";
     }
 }
