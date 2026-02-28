@@ -34,7 +34,7 @@ internal static class NeutronDrive
 
         mainLogger.LogInformation("Starting application.");
 
-        var persistentCache = new PersistentCache(cacheFile, loggerFactory.CreateLogger<PersistentCache>());
+        var persistentCache = new PersistentCache(GetLocalDataPath() + cacheFile, loggerFactory.CreateLogger<PersistentCache>());
         var sessionCache = new PersistentSessionCache(persistentCache, loggerFactory.CreateLogger<PersistentSessionCache>());
         var secretsCache = new PersistentSecretsCache(persistentCache, loggerFactory.CreateLogger<PersistentSecretsCache>());
 
@@ -233,6 +233,25 @@ internal static class NeutronDrive
 
     }
 
+    private static string GetLocalDataPath()
+    {   
+        var cachePath = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (string.IsNullOrEmpty(cachePath))
+        {
+            cachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        }
+        cachePath += "/NeutronDrive/";
+        if (File.Exists(cachePath.TrimEnd('/')))
+        {
+            throw new IOException($"Cannot create data directory: a file already exists at '{cachePath.TrimEnd('/')}'.");
+        }
+        if (!Directory.Exists(cachePath))
+        {
+            Directory.CreateDirectory(cachePath);
+        }
+        return cachePath;
+    }
+    
     private static string GetContentType(string filePath)
     {
         var provider = new FileExtensionContentTypeProvider();
