@@ -1,6 +1,4 @@
-﻿using System.Text;
-using System.Text.Json;
-using Microsoft.AspNetCore.StaticFiles;
+﻿using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
 using Proton.Sdk;
 using Proton.Sdk.Drive;
@@ -11,11 +9,6 @@ internal static class NeutronDrive
 {
     private static async Task Main(string[] args)
     {
-        const string platform = "external";
-        const string appName = "neutrondrive";
-        const string version = "0.1.0-alpha";
-        const string appVersion = $"{platform}-drive-{appName}@{version}";
-        const string cacheFile = "cache.json";
 
         var verbose = args.Contains("--verbose");
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -30,13 +23,11 @@ internal static class NeutronDrive
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
+        var authenticationService = new AuthenticationService(loggerFactory);
+
         var mainLogger = loggerFactory.CreateLogger("NeutronDrive");
 
         mainLogger.LogInformation("Starting application.");
-
-        var persistentCache = new PersistentCache(GetLocalDataPath() + cacheFile, loggerFactory.CreateLogger<PersistentCache>());
-        var sessionCache = new PersistentSessionCache(persistentCache, loggerFactory.CreateLogger<PersistentSessionCache>());
-        var secretsCache = new PersistentSecretsCache(persistentCache, loggerFactory.CreateLogger<PersistentSecretsCache>());
 
         var fileArgIndex = Array.IndexOf(args, "--file");
         if (fileArgIndex == -1 || fileArgIndex + 1 >= args.Length)
@@ -60,86 +51,8 @@ internal static class NeutronDrive
             mainLogger.LogInformation("Folder specified: {Folder}", folder);
         }
 
-        var options = new ProtonClientOptions()
-        {
-            AppVersion = appVersion,
-            SecretsCache = secretsCache,
-            LoggerFactory = loggerFactory
-        };
-
-
-        ProtonApiSession session;
-        if (sessionCache.HasSession)
-        {
-            mainLogger.LogInformation("Found existing session and secrets cache.");
-            Console.WriteLine("Found existing session and secrets cache, attempting to resume session...");
-            var sessionStuff = sessionCache.Session!;
-            var sessionResumeRequest = new SessionResumeRequest()
-            {
-                AccessToken = sessionStuff.AccessToken,
-                RefreshToken = sessionStuff.RefreshToken,
-                SessionId = new SessionId(sessionStuff.Id),
-                UserId = new UserId(sessionStuff.UserId),
-                Options = options
-            };
-            session = ProtonApiSession.Resume(sessionResumeRequest);
-            mainLogger.LogInformation("Session resumed successfully.");
-        } else
-        {
-            mainLogger.LogInformation("No existing session found. Starting new session.");
-            Console.Write("Username: ");
-            var username = Console.ReadLine();
-            if (username is null || username.Length == 0)
-            {
-                Console.WriteLine("Please provide a username.");
-                return;
-            }
-
-            Console.Write("Password: ");
-            var password = ReadPassword();
-            if (password.Length == 0)
-            {
-                Console.WriteLine("Please provide a password.");
-                return;
-            }
-
-            var sessionBeginRequest = new SessionBeginRequest()
-            {
-                Username = username,
-                Password = password,
-                Options = options
-            };
-
-            mainLogger.LogInformation("Beginning new session.");
-            session = await ProtonApiSession.BeginAsync(sessionBeginRequest, CancellationToken.None);
-
-            if (session.IsWaitingForSecondFactorCode)
-            {
-                Console.Write("Second factor code: ");
-                var secondFactorCode = Console.ReadLine();
-                if (secondFactorCode is null || secondFactorCode.Length == 0)
-                {
-                    Console.WriteLine("Please provide a 2FA code.");
-                    return;
-                }
-
-                await session.ApplySecondFactorCodeAsync(secondFactorCode, CancellationToken.None);
-                mainLogger.LogInformation("2FA code applied.");
-                await session.ApplyDataPasswordAsync(Encoding.UTF8.GetBytes(password), CancellationToken.None);
-                mainLogger.LogInformation("Data password applied.");
-                var tokens = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
-                var sessionStuff = new SessionStuff
-                {
-                    Id = session.SessionId.Value,
-                    AccessToken = tokens.AccessToken,
-                    RefreshToken = tokens.RefreshToken,
-                    UserId = session.UserId.Value,
-                    Username = session.Username,
-                };
-                sessionCache.SaveSession(sessionStuff);
-                mainLogger.LogInformation("New session details saved to cache.");
-            }
-        }
+        var session = await authenticationService.GetSession();
+       
         try
         {
             var cancellationToken = CancellationToken.None; // Remove this if you have an actual cancellation token
@@ -219,32 +132,7 @@ internal static class NeutronDrive
             mainLogger.LogInformation("Session ended and cache cleared.");
             throw;
         }
-        finally
-        {
-            secretsCache.Dispose();
-            persistentCache.Dispose();
-            mainLogger.LogInformation("Caches disposed.");
-        }
 
-    }
-
-    private static string GetLocalDataPath()
-    {   
-        var cachePath = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        if (string.IsNullOrEmpty(cachePath))
-        {
-            cachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
-        }
-        cachePath += "/NeutronDrive/";
-        if (File.Exists(cachePath.TrimEnd('/')))
-        {
-            throw new IOException($"Cannot create data directory: a file already exists at '{cachePath.TrimEnd('/')}'.");
-        }
-        if (!Directory.Exists(cachePath))
-        {
-            Directory.CreateDirectory(cachePath);
-        }
-        return cachePath;
     }
     
     private static string GetContentType(string filePath)
@@ -257,39 +145,5 @@ internal static class NeutronDrive
 
         return contentType;
     }
-    
-    private static string ReadPassword()
-    {
-        string password = "";
-        while (true)
-        {
-            // Read key without displaying it
-            ConsoleKeyInfo keyInfo = Console.ReadKey(intercept: true);
 
-            // Handle the Enter key to finish input
-            if (keyInfo.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                break;
-            }
-            // Handle the Backspace key to delete characters
-            else if (keyInfo.Key == ConsoleKey.Backspace)
-            {
-                if (password.Length > 0)
-                {
-                    // Remove the last character from the string
-                    password = password.Substring(0, password.Length - 1);
-                    // Move cursor back, overwrite with space, move back again
-                    Console.Write("\b \b");
-                }
-            }
-            // Handle normal characters
-            else if (!char.IsControl(keyInfo.KeyChar))
-            {
-                password += keyInfo.KeyChar;
-                Console.Write("*"); // Print a masking character
-            }
-        }
-        return password;
-    }
 }
