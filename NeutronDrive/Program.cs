@@ -23,7 +23,7 @@ internal static class NeutronDrive
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
-        var authenticationService = new AuthenticationService(loggerFactory);
+        using var authenticationService = new AuthenticationService(loggerFactory);
 
         var mainLogger = loggerFactory.CreateLogger("NeutronDrive");
 
