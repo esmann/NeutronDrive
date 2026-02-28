@@ -8,7 +8,7 @@ public class CacheKeyJsonConverter : JsonConverter<CacheKey>
 {
     public override CacheKey Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        return reader.TokenType != JsonTokenType.String ? throw new JsonException("Expected string value for CacheKey.") : ParseCacheKey(reader.GetString());
+        return reader.TokenType == JsonTokenType.String ? ParseCacheKey(reader.GetString()) : throw new JsonException("Expected string value for CacheKey.");
     }
 
     public override void Write(Utf8JsonWriter writer, CacheKey value, JsonSerializerOptions options)

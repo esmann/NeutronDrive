@@ -6,21 +6,16 @@ Builds on the sdk-tech-demo and dotnet-crypto repositories, and is only tested o
 Both sdk-tech-demo and the publicly available dotnet-crypto are outdated, so this will probably need to be changed when
 when a newer version is released. 
 
-Clone and follow the instructions in the https://github.com/ProtonDriveApps/dotnet-crypto  
-Be aware of the typo in step 3 in dotnet-crypto (missing h in path to .csproj file).
-And to get it to work with the sdk-tech-demo Version seems to need to be 0.10.4
+# Setup project
 
-Clone and follow the instructions in  https://github.com/ProtonDriveApps/sdk-tech-demo
-It seems you also need to do
-
-```sh
-dotnet pack -c Release -p:Version=1.0.3 src/Proton.Sdk.Instrumentation/Proton.Sdk.Instrumentation.csproj --output ~/.cache/nuget/
+run
+```shell
+build_amd64.sh
 ```
 
-You can create a binary using
-```sh
-dotnet publish -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true
-```
+It should download and build the sdk-tech-demo and dotnet-crypto projects, and then build the neutron-drive project. The resulting executable will be in the `bin` folder.
+After the first build, you can just run `build.sh` to build the project, as long as you don't need to update the sdk-tech-demo and dotnet-crypto dependencies.
+Also after the first build, the project should work in Rider.
 
 Has two arguments:
 ```
