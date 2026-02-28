@@ -4,8 +4,9 @@ using Proton.Sdk;
 
 namespace NeutronDrive;
 
-public class AuthenticationService
+public class AuthenticationService : IDisposable
 {
+    private readonly PersistentCache _persistentCache;
     private readonly PersistentSessionCache _sessionCache;
     private readonly PersistentSecretsCache _secretsCache;
     private readonly ILoggerFactory _loggerFactory;
@@ -21,9 +22,9 @@ public class AuthenticationService
     {
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<AuthenticationService>();
-        var persistentCache = new PersistentCache(GetLocalDataPath() + CacheFile, loggerFactory.CreateLogger<PersistentCache>());
-        _sessionCache = new PersistentSessionCache(persistentCache, loggerFactory.CreateLogger<PersistentSessionCache>());
-        _secretsCache = new PersistentSecretsCache(persistentCache, loggerFactory.CreateLogger<PersistentSecretsCache>());
+        _persistentCache = new PersistentCache(GetLocalDataPath() + CacheFile, loggerFactory.CreateLogger<PersistentCache>());
+        _sessionCache = new PersistentSessionCache(_persistentCache, loggerFactory.CreateLogger<PersistentSessionCache>());
+        _secretsCache = new PersistentSecretsCache(_persistentCache, loggerFactory.CreateLogger<PersistentSecretsCache>());
     }
 
     public async Task<ProtonApiSession> GetSession()
@@ -127,8 +128,13 @@ public class AuthenticationService
                 _logger.LogInformation("New session details saved to cache.");
             }
         }
-
         return session;
+    }
+
+    public void Dispose()
+    {
+        _secretsCache.Dispose();
+        _persistentCache.Dispose();
     }
 
     private static string GetLocalDataPath()
