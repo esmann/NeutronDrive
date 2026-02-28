@@ -96,8 +96,8 @@ internal static class NeutronDrive
             }
 
             Console.Write("Password: ");
-            var password = Console.ReadLine();
-            if (password is null || password.Length == 0)
+            var password = ReadPassword();
+            if (password.Length == 0)
             {
                 Console.WriteLine("Please provide a password.");
                 return;
@@ -214,14 +214,9 @@ internal static class NeutronDrive
         }
         catch (Exception e)
         {
-            Console.WriteLine("Something failed, attempting to end session...");
+            Console.WriteLine($"Something failed: {e.Message}");
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
-            var token = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
-            await ProtonApiSession.EndAsync(session.SessionId.Value, token.AccessToken, new ProtonClientOptions { AppVersion = appVersion });
-            secretsCache.Dispose();
-            persistentCache.Clear();
             mainLogger.LogInformation("Session ended and cache cleared.");
-            Console.WriteLine(e);
             throw;
         }
         finally
@@ -261,5 +256,40 @@ internal static class NeutronDrive
         }
 
         return contentType;
+    }
+    
+    private static string ReadPassword()
+    {
+        string password = "";
+        while (true)
+        {
+            // Read key without displaying it
+            ConsoleKeyInfo keyInfo = Console.ReadKey(intercept: true);
+
+            // Handle the Enter key to finish input
+            if (keyInfo.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                break;
+            }
+            // Handle the Backspace key to delete characters
+            else if (keyInfo.Key == ConsoleKey.Backspace)
+            {
+                if (password.Length > 0)
+                {
+                    // Remove the last character from the string
+                    password = password.Substring(0, password.Length - 1);
+                    // Move cursor back, overwrite with space, move back again
+                    Console.Write("\b \b");
+                }
+            }
+            // Handle normal characters
+            else if (!char.IsControl(keyInfo.KeyChar))
+            {
+                password += keyInfo.KeyChar;
+                Console.Write("*"); // Print a masking character
+            }
+        }
+        return password;
     }
 }
