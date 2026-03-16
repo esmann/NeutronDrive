@@ -132,6 +132,13 @@ public class AuthenticationService : IDisposable
         return session;
     }
 
+    public void ClearCache()
+    {
+        _persistentCache.Session = null;
+        _persistentCache.Save();
+        _logger.LogInformation("Cache cleared.");
+    }
+
     public void Dispose()
     {
         _secretsCache.Dispose();

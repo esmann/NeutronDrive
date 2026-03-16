@@ -127,9 +127,16 @@ internal static class NeutronDrive
 
             return 0;
         }
-        catch (Exception e)
+        catch (ProtonApiException e)
         {
-            Console.WriteLine($"Something failed: {e.Message}");
+            if (e.Code == ResponseCode.InvalidRefreshToken)
+            {
+                Console.WriteLine("Authentication failed. Please log in again.");
+                authenticationService.ClearCache();
+                mainLogger.LogWarning("Invalid access token. Cache cleared. User needs to log in again.");
+                return 1;
+            }
+            Console.WriteLine($"Something failed during upload: {e.Message}");
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
             mainLogger.LogInformation("Session ended and cache cleared.");
             throw;
@@ -140,7 +147,7 @@ internal static class NeutronDrive
     {
         using var loggerFactory = CreateLoggerFactory(opts.Verbose);
 
-        var authenticationService = new AuthenticationService(loggerFactory);
+        using var authenticationService = new AuthenticationService(loggerFactory);
         var mainLogger = loggerFactory.CreateLogger("NeutronDrive");
 
         mainLogger.LogInformation("Starting download.");
@@ -218,10 +225,18 @@ internal static class NeutronDrive
 
             return 0;
         }
-        catch (Exception e)
+        catch (ProtonApiException e)
         {
-            Console.WriteLine($"Something failed: {e.Message}");
+            if (e.Code == ResponseCode.InvalidRefreshToken)
+            {
+                Console.WriteLine("Authentication failed. Please log in again.");
+                authenticationService.ClearCache();
+                mainLogger.LogWarning("Invalid access token. Cache cleared. User needs to log in again.");
+                return 1;
+            }
+            Console.WriteLine($"Something failed during download: {e.Message}");
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
+            mainLogger.LogInformation("Session ended and cache cleared.");
             throw;
         }
     }
@@ -230,7 +245,7 @@ internal static class NeutronDrive
     {
         using var loggerFactory = CreateLoggerFactory(opts.Verbose);
 
-        var authenticationService = new AuthenticationService(loggerFactory);
+        using var authenticationService = new AuthenticationService(loggerFactory);
         var mainLogger = loggerFactory.CreateLogger("NeutronDrive");
 
         mainLogger.LogInformation("Starting delete.");
@@ -286,10 +301,18 @@ internal static class NeutronDrive
 
             return 0;
         }
-        catch (Exception e)
+        catch (ProtonApiException e)
         {
-            Console.WriteLine($"Something failed: {e.Message}");
+            if (e.Code == ResponseCode.InvalidRefreshToken)
+            {
+                Console.WriteLine("Authentication failed. Please log in again.");
+                authenticationService.ClearCache();
+                mainLogger.LogWarning("Invalid access token. Cache cleared. User needs to log in again.");
+                return 1;
+            }
+            Console.WriteLine($"Something failed during delete: {e.Message}");
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
+            mainLogger.LogInformation("Session ended and cache cleared.");
             throw;
         }
     }
