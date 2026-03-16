@@ -113,20 +113,21 @@ public class AuthenticationService : IDisposable
                     Environment.Exit(-1);
                 }
                 _logger.LogInformation("2FA code applied.");
-                await session.ApplyDataPasswordAsync(Encoding.UTF8.GetBytes(password), CancellationToken.None);
-                _logger.LogInformation("Data password applied.");
-                var tokens = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
-                var sessionStuff = new SessionStuff
-                {
-                    Id = session.SessionId.Value,
-                    AccessToken = tokens.AccessToken,
-                    RefreshToken = tokens.RefreshToken,
-                    UserId = session.UserId.Value,
-                    Username = session.Username,
-                };
-                _sessionCache.SaveSession(sessionStuff);
-                _logger.LogInformation("New session details saved to cache.");
             }
+
+            await session.ApplyDataPasswordAsync(Encoding.UTF8.GetBytes(password), CancellationToken.None);
+            _logger.LogInformation("Data password applied.");
+            var tokens = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
+            var sessionStuff = new SessionStuff
+            {
+                Id = session.SessionId.Value,
+                AccessToken = tokens.AccessToken,
+                RefreshToken = tokens.RefreshToken,
+                UserId = session.UserId.Value,
+                Username = session.Username,
+            };
+            _sessionCache.SaveSession(sessionStuff);
+            _logger.LogInformation("New session details saved to cache.");
         }
         return session;
     }
