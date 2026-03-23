@@ -52,8 +52,20 @@ public class AuthenticationService : IDisposable
                 UserId = new UserId(sessionStuff.UserId!),
                 Options = options
             };
-            _logger.LogInformation("Session resumed successfully.");
             session = ProtonApiSession.Resume(sessionResumeRequest);
+            _logger.LogInformation("Session resumed successfully.");
+
+            var tokens = await session.TokenCredential.GetAccessTokenAsync(CancellationToken.None);
+            var updatedSessionStuff = new SessionStuff
+            {
+                Id = session.SessionId.Value,
+                AccessToken = tokens.AccessToken,
+                RefreshToken = tokens.RefreshToken,
+                UserId = session.UserId.Value,
+                Username = session.Username,
+            };
+            _sessionCache.SaveSession(updatedSessionStuff);
+            _logger.LogInformation("Refreshed tokens saved to cache after session resume.");
         }
         else
         {
