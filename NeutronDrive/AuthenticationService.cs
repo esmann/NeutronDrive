@@ -144,6 +144,24 @@ public class AuthenticationService : IDisposable
         return session;
     }
 
+    public async Task RefreshSessionAsync(ProtonApiSession session, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Attempting to refresh access token.");
+        var refreshToken = _sessionCache.Session?.RefreshToken
+            ?? throw new InvalidOperationException("No refresh token available in session cache.");
+        var token = await session.TokenCredential.GetRefreshedAccessTokenAsync(refreshToken, cancellationToken);
+        var updatedSessionStuff = new SessionStuff
+        {
+            Id = session.SessionId.Value,
+            AccessToken = _sessionCache.Session.AccessToken,
+            RefreshToken = token,
+            UserId = session.UserId.Value,
+            Username = session.Username,
+        };
+        _sessionCache.SaveSession(updatedSessionStuff);
+        _logger.LogInformation("Refreshed tokens saved to cache.");
+    }
+
     public void ClearCache()
     {
         _persistentCache.Session = null;

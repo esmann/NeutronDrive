@@ -131,14 +131,23 @@ internal static class NeutronDrive
         {
             if (e.Code == ResponseCode.InvalidRefreshToken)
             {
-                Console.WriteLine("Authentication failed. Please log in again.");
-                authenticationService.ClearCache();
-                mainLogger.LogWarning("Invalid access token. Cache cleared. User needs to log in again.");
-                return 1;
+                mainLogger.LogWarning("Invalid access token. Attempting to refresh token.");
+                try
+                {
+                    await authenticationService.RefreshSessionAsync(session, CancellationToken.None);
+                    Console.WriteLine("Token refreshed successfully. Please retry the operation.");
+                    return 1;
+                }
+                catch (Exception refreshEx)
+                {
+                    mainLogger.LogError(refreshEx, "Token refresh failed: {ErrorMessage}", refreshEx.Message);
+                    Console.WriteLine("Authentication failed. Please log in again.");
+                    authenticationService.ClearCache();
+                    return 1;
+                }
             }
             Console.WriteLine($"Something failed during upload: {e.Message}");
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
-            mainLogger.LogInformation("Session ended and cache cleared.");
             throw;
         }
     }
@@ -229,14 +238,23 @@ internal static class NeutronDrive
         {
             if (e.Code == ResponseCode.InvalidRefreshToken)
             {
-                Console.WriteLine("Authentication failed. Please log in again.");
-                authenticationService.ClearCache();
-                mainLogger.LogWarning("Invalid access token. Cache cleared. User needs to log in again.");
-                return 1;
+                mainLogger.LogWarning("Invalid access token. Attempting to refresh token.");
+                try
+                {
+                    await authenticationService.RefreshSessionAsync(session);
+                    Console.WriteLine("Token refreshed successfully. Please retry the operation.");
+                    return 1;
+                }
+                catch (Exception refreshEx)
+                {
+                    mainLogger.LogError(refreshEx, "Token refresh failed: {ErrorMessage}", refreshEx.Message);
+                    Console.WriteLine("Authentication failed. Please log in again.");
+                    authenticationService.ClearCache();
+                    return 1;
+                }
             }
             Console.WriteLine($"Something failed during download: {e.Message}");
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
-            mainLogger.LogInformation("Session ended and cache cleared.");
             throw;
         }
     }
@@ -305,14 +323,23 @@ internal static class NeutronDrive
         {
             if (e.Code == ResponseCode.InvalidRefreshToken)
             {
-                Console.WriteLine("Authentication failed. Please log in again.");
-                authenticationService.ClearCache();
-                mainLogger.LogWarning("Invalid access token. Cache cleared. User needs to log in again.");
-                return 1;
+                mainLogger.LogWarning("Invalid access token. Attempting to refresh token.");
+                try
+                {
+                    await authenticationService.RefreshSessionAsync(session);
+                    Console.WriteLine("Token refreshed successfully. Please retry the operation.");
+                    return 1;
+                }
+                catch (Exception refreshEx)
+                {
+                    mainLogger.LogError(refreshEx, "Token refresh failed: {ErrorMessage}", refreshEx.Message);
+                    Console.WriteLine("Authentication failed. Please log in again.");
+                    authenticationService.ClearCache();
+                    return 1;
+                }
             }
             Console.WriteLine($"Something failed during delete: {e.Message}");
             mainLogger.LogError(e, "An exception occurred: {ErrorMessage}", e.Message);
-            mainLogger.LogInformation("Session ended and cache cleared.");
             throw;
         }
     }
